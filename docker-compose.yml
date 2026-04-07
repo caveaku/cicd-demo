@@ -1,0 +1,25 @@
+version: '3.9'
+
+services:
+  app:
+    build:
+      context: .
+      target: production        # Use the production stage from our multi-stage Dockerfile
+    image: cicd-demo:local
+    container_name: cicd-demo-app
+    ports:
+      - "3000:3000"             # host:container
+    environment:
+      - NODE_ENV=production
+      - APP_VERSION=local-dev
+    restart: unless-stopped
+
+  # Optional: run tests in isolation via docker-compose
+  test:
+    build:
+      context: .
+      target: builder           # Use the builder stage which includes devDeps
+    container_name: cicd-demo-test
+    command: npm test
+    profiles:
+      - test                    # Only runs when: docker-compose --profile test up
