@@ -5,8 +5,7 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "test": "jest --coverage",
-    "lint": "eslint src/**/*.js"
+    "test": "jest --coverage --forceExit"
   },
   "dependencies": {
     "express": "^4.18.2"

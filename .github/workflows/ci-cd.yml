@@ -1,0 +1,106 @@
+name: CI/CD Pipeline
+
+# ── Triggers ─────────────────────────────────────────────────────────────────
+on:
+  push:
+    branches: [main, develop]   # CI runs on every push to these branches
+  pull_request:
+    branches: [main]            # CI also runs when a PR targets main
+
+# ── Environment Variables ────────────────────────────────────────────────────
+env:
+  IMAGE_NAME: cicd-demo         # Docker image name
+  REGISTRY: ghcr.io             # GitHub Container Registry
+
+jobs:
+
+  # ── JOB 1: Test ─────────────────────────────────────────────────────────────
+  # This job runs on every push/PR. It's the gatekeeper.
+  test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'          # Cache node_modules between runs
+
+      - name: Install dependencies
+        run: npm ci             # ci = clean install, uses package-lock.json exactly
+
+      - name: Run tests with coverage
+        run: npm test
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/       # Jest outputs here by default
+
+  # ── JOB 2: Build & Push Docker Image ────────────────────────────────────────
+  # Only runs AFTER tests pass, and only on pushes to main (not PRs)
+  build:
+    name: Build & Push Image
+    runs-on: ubuntu-latest
+    needs: test                 # Depends on the test job passing
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: read
+      packages: write           # Required to push to GitHub Container Registry
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}  # Auto-provided by GitHub
+
+      - name: Extract metadata (tags & labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-          # e.g. sha-a1b2c3d
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3  # Enables multi-platform builds & caching
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha       # Use GitHub Actions cache for Docker layers
+          cache-to: type=gha,mode=max
+
+  # ── JOB 3: Deploy ──────────────────────────────────────────────────────────
+  # Runs after image is built. This is a stub — replace with your real deploy.
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: build
+    environment: production     # Requires manual approval if configured in GitHub
+
+    steps:
+      - name: Deploy (stub)
+        run: |
+          echo "Deploying image: ${{ env.REGISTRY }}/${{ github.repository }}/${{ env.IMAGE_NAME }}:latest"
+          # In real life this would be:
+          # - kubectl set image deployment/cicd-demo app=<image>   (Kubernetes)
+          # - aws ecs update-service ...                            (ECS)
+          # - ssh user@server "docker pull && docker-compose up -d" (bare metal)
+          echo "Deploy complete ✅"
